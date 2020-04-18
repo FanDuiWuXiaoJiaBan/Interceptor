@@ -21,16 +21,27 @@ import android.text.TextUtils;
 import androidx.annotation.NonNull;
 import androidx.annotation.Nullable;
 
+import org.json.JSONArray;
+import org.json.JSONException;
+import org.json.JSONObject;
+
+import java.io.EOFException;
+import java.io.IOException;
+import java.nio.charset.Charset;
+import java.nio.charset.StandardCharsets;
 import java.util.List;
 
+import okhttp3.Headers;
 import okhttp3.MediaType;
 import okhttp3.Request;
+import okhttp3.RequestBody;
+import okio.Buffer;
 
 /**
  * ================================================
  * 对 OkHttp 的请求和响应信息进行更规范和清晰的打印, 此类为框架默认实现, 以默认格式打印信息, 若觉得默认打印格式
  * 并不能满足自己的需求, 可自行扩展自己理想的打印格式
- *
+ * <p>
  * Created by JessYan on 25/01/2018 14:51
  * <a href="mailto:jess.yan.effort@gmail.com">Contact me</a>
  * <a href="https://github.com/JessYanCoding">Follow me</a>
@@ -59,6 +70,7 @@ public class DefaultFormatPrinter implements FormatPrinter {
     private static final String CORNER_BOTTOM = "└ ";
     private static final String CENTER_LINE = "├ ";
     private static final String DEFAULT_LINE = "│ ";
+    private static final int JSON_INDENT = 3;
 
     private static boolean isEmpty(String line) {
         return TextUtils.isEmpty(line) || N.equals(line) || T.equals(line) || TextUtils.isEmpty(line.trim());
@@ -80,8 +92,8 @@ public class DefaultFormatPrinter implements FormatPrinter {
         logLines(tag, new String[]{URL_TAG + request.url()}, false);
         logLines(tag, getRequest(request), true);
 //        if (request.method().equals("POST")){
-            //方便复制请求信息
-            LogUtils.debugInfo(tag,bodyString);
+        //方便复制请求信息
+        LogUtils.debugInfo(tag, bodyString);
 //        }else {
 //            logLines(tag, requestBody.split(LINE_SEPARATOR), true);
 //        }
@@ -101,8 +113,133 @@ public class DefaultFormatPrinter implements FormatPrinter {
         logLines(tag, new String[]{URL_TAG + request.url()}, false);
         logLines(tag, getRequest(request), true);
         logLines(tag, OMITTED_REQUEST, true);
+//        logLines(tag,bodyToString(request.body(),request.headers()),true);
+        LogUtils.debugInfo(tag,bodyToString(request.body(),request.headers()));
         LogUtils.debugInfo(tag, END_LINE);
+
     }
+
+    private String bodyToString(RequestBody requestBody, Headers headers) {
+        if (requestBody != null) {
+            if (bodyHasUnknownEncoding(headers)){
+                return "encoded body omitted)";
+            }else if (requestBody.isDuplex()){
+                return "duplex request body omitted";
+            }else if (requestBody.isOneShot()){
+                return "one-shot body omitted";
+            }else {
+                Buffer buffer= new Buffer();
+                try {
+                    requestBody.writeTo(buffer);
+                    MediaType mediaType = requestBody.contentType();
+                    if (mediaType!=null){
+                        Charset charset = mediaType.charset(Charset.forName("UTF-8"));
+                        if (charset==null){
+                            charset=Charset.forName("UTF-8");
+                        }
+                        long l = requestBody.contentLength();
+                        if (isProbablyUtf8(buffer)){
+                          return   getJsonString(buffer.readString(charset))+LINE_SEPARATOR+l+"-byte body";
+                        }else {
+                           return  "binary "+"l"+"-byte body omitted";
+                        }
+                    }
+                } catch (IOException e) {
+                    e.printStackTrace();
+                }
+            }
+
+        }
+        return "";
+    }
+    private String getJsonString( String msg) {
+        String message="";
+        try {
+            if (msg.startsWith("{")){
+                JSONObject jsonObject = new JSONObject(msg);
+                message= jsonObject.toString(JSON_INDENT);
+            }else if (msg.startsWith("[")){
+                JSONArray jsonArray = new JSONArray(msg);
+                message =  jsonArray.toString(JSON_INDENT);
+            }else {
+                message =msg;
+            }
+        }catch (JSONException e){
+                message=OMITTED_REQUEST[1];
+        }
+
+        return message;
+    }
+
+    private boolean bodyHasUnknownEncoding(Headers headers) {
+
+        String contentEncoding = headers.get("Content-Encoding");
+        if (contentEncoding == null) {
+            return false;
+        }
+        String s = contentEncoding.toLowerCase();
+        return !s.equals("identity") && !s.equals("gzip");
+
+    }
+    private boolean isProbablyUtf8(Buffer buffer){
+        try {
+            Buffer prefix = new Buffer();
+            long size = buffer.size();
+            long byteCount;
+            //取小的
+            if (size>64){
+                byteCount = 64;
+            }else {
+                byteCount=size;
+            }
+            buffer.copyTo(prefix,0,byteCount);
+            for (int i = 0; i < 16; i++) {
+                if (prefix.exhausted()){
+                    break;
+                }
+                int codePoint = prefix.readUtf8CodePoint();
+                if (Character.isISOControl(codePoint) && !Character.isWhitespace(codePoint)) {
+                    return false;
+                }
+            }
+            return true;
+        }catch (EOFException e){
+            return false;
+        }
+    }
+//    private fun bodyToString(requestBody: RequestBody?, headers: Headers): String {
+//        return requestBody?.let {
+//            return try {
+//                when {
+//                    bodyHasUnknownEncoding(headers) -> {
+//                        return "encoded body omitted)"
+//                    }
+//                    requestBody.isDuplex() -> {
+//                        return "duplex request body omitted"
+//                    }
+//                    requestBody.isOneShot() -> {
+//                        return "one-shot body omitted"
+//                    }
+//                        else -> {
+//                        val buffer = Buffer()
+//                        requestBody.writeTo(buffer)
+//
+//                        val contentType = requestBody.contentType()
+//                        val charset: Charset = contentType?.charset(StandardCharsets.UTF_8)
+//                                ?: StandardCharsets.UTF_8
+//
+//                        return if (buffer.isProbablyUtf8()) {
+//                            getJsonString(buffer.readString(charset)) + LINE_SEPARATOR + "${requestBody.contentLength()}-byte body"
+//                        } else {
+//                            "binary ${requestBody.contentLength()}-byte body omitted"
+//                        }
+//                    }
+//                }
+//            } catch (e:IOException) {
+//                "{\"err\": \"" + e.message + "\"}"
+//            }
+//        } ?: ""
+//    }
 
     /**
      * 打印网络响应信息, 当网络响应时 {{@link okhttp3.ResponseBody}} 可以解析的情况
@@ -129,7 +266,7 @@ public class DefaultFormatPrinter implements FormatPrinter {
 
         LogUtils.debugInfo(tag, RESPONSE_UP_LINE);
         //方便访问
-        LogUtils.debugInfo(tag,responseUrl);
+        LogUtils.debugInfo(tag, responseUrl);
 //        logLines(tag, urlLine, true);
         logLines(tag, getResponse(headers, chainMs, code, isSuccessful, segments, message), true);
         logLines(tag, responseBody.split(LINE_SEPARATOR), true);
@@ -154,7 +291,7 @@ public class DefaultFormatPrinter implements FormatPrinter {
         final String[] urlLine = {URL_TAG + responseUrl, N};
 
         LogUtils.debugInfo(tag, RESPONSE_UP_LINE);
-        LogUtils.debugInfo(tag,responseUrl);
+        LogUtils.debugInfo(tag, responseUrl);
 //        logLines(tag, urlLine, true);
         logLines(tag, getResponse(headers, chainMs, code, isSuccessful, segments, message), true);
         logLines(tag, OMITTED_RESPONSE, true);
