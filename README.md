@@ -1,6 +1,6 @@
 <p align="center">
     <a href="https://bintray.com/beta/#/buyaomiege/RequestInterceptor/RequestInterceptor">
-    <img src="https://img.shields.io/badge/Jcenter-v1.0.2-brightgreen.svg?style=flat-square" alt="Latest Stable Version">
+    <img src="https://img.shields.io/badge/Jcenter-v1.0.3-brightgreen.svg?style=flat-square" alt="Latest Stable Version">
 </a>
 </p>
 
