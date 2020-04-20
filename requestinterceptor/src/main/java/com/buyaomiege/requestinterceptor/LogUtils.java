@@ -29,7 +29,7 @@ import android.util.Log;
  */
 public class LogUtils {
     private static final String DEFAULT_TAG = "MVPArm";
-    private static boolean isLog = BuildConfig.LOG_DEBUG;
+    private static boolean isLog = true;
 
     private LogUtils() {
         throw new IllegalStateException("you can't instantiate me!");
